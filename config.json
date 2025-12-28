@@ -5,14 +5,23 @@
       "path": "."
     },
     {
-      "name": "用户主目录",
-      "path": "/Users/andy"
+      "name": "服务器列表",
+      "path": "./data/serverList"
     },
     {
-      "name": "系统根目录",
-      "path": "/"
+      "name": "服务器信息",
+      "path": "./data/server"
     }
   ],
   "port": 8080,
-  "staticDir": "./static"
+  "staticDirs": [
+    {
+      "name": "default",
+      "path": "./static"
+    },
+    {
+      "name": "server",
+      "path": "./data/server"
+    }
+  ]
 }
