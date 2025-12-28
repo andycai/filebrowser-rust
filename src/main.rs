@@ -67,6 +67,20 @@ struct SearchResult {
     line: String,
 }
 
+/// 保存文件请求
+#[derive(Debug, Deserialize)]
+struct SaveRequest {
+    path: String,
+    content: String,
+}
+
+/// 成功响应
+#[derive(Debug, Serialize)]
+struct SuccessResponse {
+    success: bool,
+    message: String,
+}
+
 /// 搜索查询参数
 #[derive(Debug, Deserialize)]
 struct SearchQuery {
@@ -153,6 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/search", get(handle_search))
         .route("/api/view", get(handle_view))
         .route("/api/roots", get(handle_roots))
+        .route("/api/save", axum::routing::post(handle_save))
+        .route("/api/delete", axum::routing::get(handle_delete))
         .route("/view/*path", get(handle_view_redirect))
         // 静态文件服务
         .nest_service("/static", ServeDir::new(static_path))
@@ -435,6 +451,60 @@ async fn handle_search(
 /// 处理根目录列表请求
 async fn handle_roots(State(state): State<AppState>) -> Json<Vec<config::RootDirConfig>> {
     Json(state.config.root_dirs.clone())
+}
+
+/// 处理保存文件请求
+async fn handle_save(
+    State(state): State<AppState>,
+    Query(root_params): Query<RootQuery>,
+    Json(req): Json<SaveRequest>,
+) -> Result<Json<SuccessResponse>, StatusCode> {
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let path = validate_and_resolve_path(&root_path, &req.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // 确保不是目录
+    if path.is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // 写入文件
+    fs::write(&path, &req.content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SuccessResponse {
+        success: true,
+        message: "文件保存成功".to_string(),
+    }))
+}
+
+/// 处理删除文件请求
+async fn handle_delete(
+    State(state): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    Query(root_params): Query<RootQuery>,
+) -> Result<Json<SuccessResponse>, StatusCode> {
+    let path = params.get("path").ok_or(StatusCode::BAD_REQUEST)?;
+
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let full_path = validate_and_resolve_path(&root_path, path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // 确保不是目录
+    if full_path.is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // 删除文件
+    fs::remove_file(&full_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SuccessResponse {
+        success: true,
+        message: "文件删除成功".to_string(),
+    }))
 }
 
 /// 验证并解析路径，防止目录遍历攻击
