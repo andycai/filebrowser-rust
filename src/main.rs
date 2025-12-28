@@ -2,7 +2,7 @@ mod config;
 mod scanner;
 
 use axum::{
-    extract::{Path as AxumPath, Query, State},
+    extract::{Path as AxumPath, Query, State, Multipart},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::get,
@@ -178,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/delete", axum::routing::get(handle_delete))
         .route("/api/create", axum::routing::post(handle_create))
         .route("/api/createDir", axum::routing::post(handle_create_dir))
+        .route("/api/upload", axum::routing::post(handle_upload))
         .route("/view/*path", get(handle_view_redirect))
         // 静态文件服务
         .nest_service("/static", ServeDir::new(static_path))
@@ -597,6 +598,69 @@ async fn handle_create_dir(
     Ok(Json(SuccessResponse {
         success: true,
         message: "目录创建成功".to_string(),
+    }))
+}
+
+/// 处理文件上传请求
+async fn handle_upload(
+    State(state): State<AppState>,
+    Query(root_params): Query<RootQuery>,
+    mut multipart: Multipart,
+) -> Result<Json<SuccessResponse>, StatusCode> {
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let mut target_path = String::from("/");
+    let mut file_name = String::new();
+    let mut file_data: Vec<u8> = Vec::new();
+
+    // 处理 multipart 表单数据
+    while let Some(field) = multipart.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+        let field_name = field.name().unwrap_or("").to_string();
+
+        if field_name == "path" {
+            // 读取路径数据
+            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            target_path = String::from_utf8(data.to_vec())
+                .map_err(|_| StatusCode::BAD_REQUEST)?;
+        } else if field_name == "file" {
+            file_name = field.file_name().unwrap_or("").to_string();
+            // 读取文件数据
+            file_data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?.to_vec();
+        }
+    }
+
+    if file_name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // 构建目标目录的完整路径
+    let dir_path = validate_and_resolve_path(&root_path, &target_path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let full_path = dir_path.join(&file_name);
+
+    // 再次检查路径是否在根目录内
+    let full_path_canonical = fs::canonicalize(&full_path)
+        .unwrap_or_else(|_| full_path.clone());
+    let root_path_canonical = fs::canonicalize(&root_path)
+        .unwrap_or_else(|_| root_path.clone());
+
+    if !full_path_canonical.starts_with(&root_path_canonical) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // 检查文件是否已存在
+    if full_path.exists() {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    // 写入文件
+    fs::write(&full_path, file_data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SuccessResponse {
+        success: true,
+        message: "文件上传成功".to_string(),
     }))
 }
 
