@@ -75,6 +75,33 @@ make build-all
 | Linux | ARM64 | `filebrowser-linux-arm64` |
 | Windows | AMD64 | `filebrowser-windows-amd64.exe` |
 
+## 交叉编译
+
+如果需要交叉编译其他平台：
+
+### Windows 交叉编译
+```bash
+# 添加 Windows 目标
+rustup target add x86_64-pc-windows-gnu
+
+# macOS 上安装 MinGW
+brew install mingw-w64
+
+# Linux 上安装 MinGW
+sudo apt-get install mingw-w64
+
+# 重新编译
+./build.sh
+```
+
+### Linux 交叉编译
+需要安装对应的交叉编译工具链。
+
+### 注意事项
+- 当前平台编译是 100% 成功的
+- 交叉编译需要额外的工具链
+- 如果交叉编译失败，脚本会显示提示信息
+
 ### 方式四：使用服务管理脚本
 
 #### Linux / macOS
