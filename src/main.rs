@@ -74,6 +74,13 @@ struct SaveRequest {
     content: String,
 }
 
+/// 创建请求
+#[derive(Debug, Deserialize)]
+struct CreateRequest {
+    path: String,
+    name: String,
+}
+
 /// 成功响应
 #[derive(Debug, Serialize)]
 struct SuccessResponse {
@@ -169,6 +176,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/roots", get(handle_roots))
         .route("/api/save", axum::routing::post(handle_save))
         .route("/api/delete", axum::routing::get(handle_delete))
+        .route("/api/create", axum::routing::post(handle_create))
+        .route("/api/createDir", axum::routing::post(handle_create_dir))
         .route("/view/*path", get(handle_view_redirect))
         // 静态文件服务
         .nest_service("/static", ServeDir::new(static_path))
@@ -504,6 +513,90 @@ async fn handle_delete(
     Ok(Json(SuccessResponse {
         success: true,
         message: "文件删除成功".to_string(),
+    }))
+}
+
+/// 处理创建文件请求
+async fn handle_create(
+    State(state): State<AppState>,
+    Query(root_params): Query<RootQuery>,
+    Json(req): Json<CreateRequest>,
+) -> Result<Json<SuccessResponse>, StatusCode> {
+    if req.name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let dir_path = validate_and_resolve_path(&root_path, &req.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let full_path = dir_path.join(&req.name);
+
+    // 再次检查路径是否在根目录内
+    let full_path_canonical = fs::canonicalize(&full_path)
+        .unwrap_or_else(|_| full_path.clone());
+    let root_path_canonical = fs::canonicalize(&root_path)
+        .unwrap_or_else(|_| root_path.clone());
+
+    if !full_path_canonical.starts_with(&root_path_canonical) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // 检查文件是否已存在
+    if full_path.exists() {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    // 创建空文件
+    fs::write(&full_path, "").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SuccessResponse {
+        success: true,
+        message: "文件创建成功".to_string(),
+    }))
+}
+
+/// 处理创建目录请求
+async fn handle_create_dir(
+    State(state): State<AppState>,
+    Query(root_params): Query<RootQuery>,
+    Json(req): Json<CreateRequest>,
+) -> Result<Json<SuccessResponse>, StatusCode> {
+    if req.name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let dir_path = validate_and_resolve_path(&root_path, &req.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let full_path = dir_path.join(&req.name);
+
+    // 再次检查路径是否在根目录内
+    let full_path_canonical = fs::canonicalize(&full_path)
+        .unwrap_or_else(|_| full_path.clone());
+    let root_path_canonical = fs::canonicalize(&root_path)
+        .unwrap_or_else(|_| root_path.clone());
+
+    if !full_path_canonical.starts_with(&root_path_canonical) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // 检查目录是否已存在
+    if full_path.exists() {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    // 创建目录
+    fs::create_dir_all(&full_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(SuccessResponse {
+        success: true,
+        message: "目录创建成功".to_string(),
     }))
 }
 
