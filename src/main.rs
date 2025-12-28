@@ -92,11 +92,21 @@ struct ListQuery {
     path: String,
 }
 
+/// 根目录查询参数
+#[derive(Debug, Deserialize)]
+struct RootQuery {
+    #[serde(default = "default_root_index")]
+    root: usize,
+}
+
+fn default_root_index() -> usize {
+    0
+}
+
 /// 应用状态
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
-    root_path: std::path::PathBuf,
 }
 
 /// 主函数
@@ -116,11 +126,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Config::default()
     });
 
-    let root_path = config.get_root_path()?;
     let static_path = config.get_static_path()?;
 
     info!("文件浏览器启动中...");
-    info!("根目录: {}", root_path.display());
+    info!("根目录数量: {}", config.root_dirs.len());
+    for (i, root_dir) in config.root_dirs.iter().enumerate() {
+        let abs_path = fs::canonicalize(&root_dir.path).unwrap_or_else(|_| {
+            eprintln!("警告: 无法解析根目录路径: {}", root_dir.path);
+            std::path::PathBuf::from(&root_dir.path)
+        });
+        info!("  [{}] {} -> {}", i, root_dir.name, abs_path.display());
+    }
     info!("静态文件目录: {}", static_path.display());
     info!("端口: {}", config.port);
 
@@ -128,7 +144,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         config: Arc::new(config),
-        root_path,
     };
 
     // 构建路由
@@ -137,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/list", get(handle_list))
         .route("/api/search", get(handle_search))
         .route("/api/view", get(handle_view))
+        .route("/api/roots", get(handle_roots))
         .route("/view/*path", get(handle_view_redirect))
         // 静态文件服务
         .nest_service("/static", ServeDir::new(static_path))
@@ -177,18 +193,39 @@ where
     }
 }
 
+/// 从 URL 参数获取根目录索引
+fn get_root_index_from_query(params: &RootQuery) -> usize {
+    params.root
+}
+
+/// 获取根目录路径（返回绝对路径）
+fn get_root_path(state: &AppState, root_index: usize) -> std::path::PathBuf {
+    if root_index < state.config.root_dirs.len() {
+        let path = &state.config.root_dirs[root_index].path;
+        // 尝试转换为绝对路径
+        fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path))
+    } else {
+        let path = &state.config.root_dirs[0].path;
+        fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path))
+    }
+}
+
 /// 处理 /view/ 路径的重定向
 async fn handle_view_redirect(
     State(state): State<AppState>,
     AxumPath(path): AxumPath<String>,
+    Query(params): Query<RootQuery>,
 ) -> Response {
+    let root_index = get_root_index_from_query(&params);
+    let root_path = get_root_path(&state, root_index);
+
     // 解码路径
     let decoded_path = percent_encoding::percent_decode_str(&path)
         .decode_utf8()
         .unwrap_or_default();
 
     // 验证路径
-    match validate_and_resolve_path(&state.root_path, decoded_path.as_ref()) {
+    match validate_and_resolve_path(&root_path, decoded_path.as_ref()) {
         Ok(full_path) => {
             if full_path.is_file() {
                 // 返回带有 JavaScript 重定向的 HTML
@@ -223,8 +260,12 @@ async fn handle_view_redirect(
 async fn handle_list(
     State(state): State<AppState>,
     Query(params): Query<ListQuery>,
+    Query(root_params): Query<RootQuery>,
 ) -> Result<Json<Vec<FileInfo>>, StatusCode> {
-    let path = validate_and_resolve_path(&state.root_path, &params.path)
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let path = validate_and_resolve_path(&root_path, &params.path)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     if !path.is_dir() {
@@ -246,7 +287,7 @@ async fn handle_list(
             .unwrap_or("")
             .to_string();
 
-        let relative_path = pathdiff::diff_paths(&file_path, &state.root_path)
+        let relative_path = pathdiff::diff_paths(&file_path, &root_path)
             .unwrap_or_else(|| file_path.clone());
         let relative_path_str = relative_path
             .to_str()
@@ -284,8 +325,12 @@ async fn handle_list(
 async fn handle_view(
     State(state): State<AppState>,
     Query(params): Query<FileQuery>,
+    Query(root_params): Query<RootQuery>,
 ) -> Result<Json<FileViewResponse>, StatusCode> {
-    let path = validate_and_resolve_path(&state.root_path, &params.path)
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let path = validate_and_resolve_path(&root_path, &params.path)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     if !path.is_file() {
@@ -336,8 +381,12 @@ async fn handle_view(
 async fn handle_search(
     State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
+    Query(root_params): Query<RootQuery>,
 ) -> Result<Json<Vec<SearchResult>>, StatusCode> {
-    let path = validate_and_resolve_path(&state.root_path, &params.path)
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let path = validate_and_resolve_path(&root_path, &params.path)
         .map_err(|_| StatusCode::NOT_FOUND)?;
 
     if !path.is_file() {
@@ -381,6 +430,11 @@ async fn handle_search(
     }
 
     Ok(Json(results))
+}
+
+/// 处理根目录列表请求
+async fn handle_roots(State(state): State<AppState>) -> Json<Vec<config::RootDirConfig>> {
+    Json(state.config.root_dirs.clone())
 }
 
 /// 验证并解析路径，防止目录遍历攻击

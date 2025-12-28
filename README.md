@@ -5,6 +5,7 @@
 ## 特性
 
 ### 1. 核心功能
+- **多根目录支持**: 支持配置多个根目录，可在不同目录间快速切换
 - 浏览文件和目录
 - 查看文本文件内容
 - 大文件分页加载（≥10MB）
@@ -154,13 +155,39 @@ sudo journalctl -u filebrowser -f
 
 ```json
 {
-  "rootDir": ".",        // 设置要浏览的根目录
-  "port": 8080,          // 设置服务器端口
-  "staticDir": "./static" // 静态文件目录
+  "rootDirs": [
+    {
+      "name": "项目目录",
+      "path": "."
+    },
+    {
+      "name": "用户主目录",
+      "path": "/Users/username"
+    },
+    {
+      "name": "系统根目录",
+      "path": "/"
+    }
+  ],
+  "port": 8080,
+  "staticDir": "./static"
 }
 ```
 
-示例：浏览特定目录
+**配置说明**:
+- `rootDirs`: 根目录配置数组（支持多个根目录）
+  - `name`: 显示名称（在界面上显示的名称）
+  - `path`: 实际文件系统路径（支持相对路径和绝对路径）
+- `port`: 服务器监听端口
+- `staticDir`: 静态文件目录路径
+
+**根目录切换**:
+- 界面顶部有根目录选择下拉框
+- 切换根目录后自动跳转到新根目录的首页
+- 每个根目录的浏览历史独立维护
+
+**向后兼容**:
+如果仍使用旧的单根目录配置格式，系统会自动兼容：
 
 ```json
 {
@@ -182,6 +209,13 @@ sudo journalctl -u filebrowser -f
 http://localhost:8080/view/path/to/file.txt
 ```
 
+### 切换根目录
+
+使用页面顶部的根目录选择器下拉框：
+- 每个根目录的浏览状态独立维护
+- 切换根目录会自动返回到该根目录的首页
+- 支持在不同根目录间快速切换
+
 ## 性能对比
 
 ### Rust vs Go
@@ -193,6 +227,7 @@ http://localhost:8080/view/path/to/file.txt
 | 启动时间 | ~1-2 ms | <1 ms |
 | 性能 | 高 | 极高 |
 | 安全性 | 安全 | 内存安全保证 |
+| 功能对等性 | 完整功能 | 完整功能（包括多根目录） |
 
 ### 优化特点
 
@@ -203,9 +238,31 @@ http://localhost:8080/view/path/to/file.txt
 
 ## API 接口
 
-### 1. 获取目录列表
+### 1. 获取根目录列表
 
-**请求**: `GET /api/list?path=<path>`
+**请求**: `GET /api/roots`
+
+**响应**:
+```json
+[
+  {
+    "name": "项目目录",
+    "path": "/absolute/path/to/project"
+  },
+  {
+    "name": "用户主目录",
+    "path": "/Users/username"
+  }
+]
+```
+
+### 2. 获取目录列表
+
+**请求**: `GET /api/list?path=<path>&root=<rootIndex>`
+
+**参数**:
+- `path`: 目录路径（相对于根目录）
+- `root`: 根目录索引（可选，默认为 0）
 
 **响应**:
 ```json
@@ -221,9 +278,14 @@ http://localhost:8080/view/path/to/file.txt
 ]
 ```
 
-### 2. 查看文件内容
+### 3. 查看文件内容
 
-**请求**: `GET /api/view?path=<path>&page=<page>`
+**请求**: `GET /api/view?path=<path>&page=<page>&root=<rootIndex>`
+
+**参数**:
+- `path`: 文件路径（相对于根目录）
+- `page`: 页码（可选，默认为 1）
+- `root`: 根目录索引（可选，默认为 0）
 
 **响应**:
 ```json
@@ -239,9 +301,14 @@ http://localhost:8080/view/path/to/file.txt
 }
 ```
 
-### 3. 搜索文件内容
+### 4. 搜索文件内容
 
-**请求**: `GET /api/search?path=<path>&q=<query>`
+**请求**: `GET /api/search?path=<path>&q=<query>&root=<rootIndex>`
+
+**参数**:
+- `path`: 文件路径（相对于根目录）
+- `q`: 搜索关键词
+- `root`: 根目录索引（可选，默认为 0）
 
 **响应**:
 ```json
@@ -358,6 +425,32 @@ cat filebrowser.log
 # 或查找占用进程
 lsof -i :8080
 ```
+
+## 常见问题
+
+### Q: 如何修改每页显示的行数？
+A: 修改 `src/scanner.rs` 中的 `LINES_PER_PAGE` 常量。
+
+### Q: 如何修改大文件的阈值？
+A: 修改 `src/scanner.rs` 中的 `LARGE_FILE_THRESHOLD` 常量。
+
+### Q: 支持哪些文件类型？
+A: 支持所有文本文件。二进制文件会显示乱码，不建议查看。
+
+### Q: 可以同时查看多个文件吗？
+A: 当前版本只支持查看单个文件，多文件标签页功能可以在未来版本中添加。
+
+### Q: 如何配置多个根目录？
+A: 在 `config.json` 中的 `rootDirs` 数组中添加多个根目录配置，每个目录需要指定 `name`（显示名称）和 `path`（实际路径）。
+
+### Q: 切换根目录会影响浏览历史吗？
+A: 不会。每个根目录的浏览历史独立维护，切换根目录后，之前根目录的浏览状态会被保留。
+
+### Q: 可以在不同的根目录之间共享文件吗？
+A: 不可以。每个根目录是独立的，只能访问该根目录及其子目录下的文件。
+
+### Q: Rust 版本与 Go 版本功能是否完全一致？
+A: 是的，Rust 版本与 Go 版本功能完全对等，包括多根目录支持、大文件分页、全文搜索等所有核心功能。
 
 ## 为什么选择 Rust？
 
