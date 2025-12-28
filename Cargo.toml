@@ -1,0 +1,42 @@
+[package]
+name = "filebrowser"
+version = "1.0.0"
+edition = "2021"
+description = "A high-performance web-based file browser with large file support"
+authors = ["Andy Cai"]
+
+[dependencies]
+# HTTP 服务器
+tokio = { version = "1.40", features = ["full"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "cors"] }
+
+# JSON 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 异步和运行时
+futures = "0.3"
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 文件系统路径处理
+path-clean = "1.0"
+pathdiff = "0.2"
+
+# URL 编码
+percent-encoding = "2.3"
+urlencoding = "2.1"
+
+# 时间格式化
+humantime = "2.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
