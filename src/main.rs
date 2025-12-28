@@ -147,8 +147,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Config::default()
     });
 
-    let static_path = config.get_static_path()?;
-
     info!("文件浏览器启动中...");
     info!("根目录数量: {}", config.root_dirs.len());
     for (i, root_dir) in config.root_dirs.iter().enumerate() {
@@ -158,7 +156,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
         info!("  [{}] {} -> {}", i, root_dir.name, abs_path.display());
     }
-    info!("静态文件目录: {}", static_path.display());
+    info!("静态文件目录数量: {}", config.static_dirs.len());
+    for (i, static_dir) in config.static_dirs.iter().enumerate() {
+        let _abs_path = fs::canonicalize(&static_dir.path).unwrap_or_else(|_| {
+            eprintln!("警告: 无法解析静态目录路径: {}", static_dir.path);
+            std::path::PathBuf::from(&static_dir.path)
+        });
+        info!("  [{}] {} -> /static/{}/", i, static_dir.name, static_dir.name);
+    }
     info!("端口: {}", config.port);
 
     let port = config.port;
@@ -168,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 构建路由
-    let app = Router::new()
+    let mut app = Router::new()
         // API 路由
         .route("/api/list", get(handle_list))
         .route("/api/search", get(handle_search))
@@ -180,12 +185,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/createDir", axum::routing::post(handle_create_dir))
         .route("/api/upload", axum::routing::post(handle_upload))
         .route("/view/*path", get(handle_view_redirect))
-        // 静态文件服务
-        .nest_service("/static", ServeDir::new(static_path))
         // 首页
         .route("/", get(handle_index))
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state.clone());
+
+    // 为每个静态目录创建服务
+    for static_dir in &state.config.static_dirs {
+        let abs_path = fs::canonicalize(&static_dir.path).unwrap_or_else(|_| {
+            eprintln!("警告: 无法解析静态目录路径: {}", static_dir.path);
+            std::path::PathBuf::from(&static_dir.path)
+        });
+
+        // 挂载到 /static/{name}/
+        let mount_path = format!("/static/{}", static_dir.name);
+        info!("已挂载静态目录 '{}' 到 {} -> {}", static_dir.name, mount_path, abs_path.display());
+        app = app.nest_service(&mount_path, ServeDir::new(abs_path));
+    }
 
     // 启动服务器
     let addr = format!("0.0.0.0:{}", port);

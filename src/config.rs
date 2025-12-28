@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -8,12 +7,18 @@ pub struct Config {
     pub root_dirs: Vec<RootDirConfig>,
     #[serde(default = "default_port")]
     pub port: u16,
-    #[serde(rename = "staticDir", default = "default_static_dir")]
-    pub static_dir: String,
+    #[serde(rename = "staticDirs", default = "default_static_dirs")]
+    pub static_dirs: Vec<StaticDirConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RootDirConfig {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticDirConfig {
     pub name: String,
     pub path: String,
 }
@@ -29,8 +34,11 @@ fn default_port() -> u16 {
     8080
 }
 
-fn default_static_dir() -> String {
-    "./static".to_string()
+fn default_static_dirs() -> Vec<StaticDirConfig> {
+    vec![StaticDirConfig {
+        name: "default".to_string(),
+        path: "./static".to_string(),
+    }]
 }
 
 impl Config {
@@ -40,12 +48,6 @@ impl Config {
         let config: Config = serde_json::from_str(&content)?;
         Ok(config)
     }
-
-    /// 获取静态文件目录的绝对路径
-    pub fn get_static_path(&self) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let path = fs::canonicalize(&self.static_dir)?;
-        Ok(path)
-    }
 }
 
 impl Default for Config {
@@ -53,7 +55,7 @@ impl Default for Config {
         Config {
             root_dirs: default_root_dirs(),
             port: default_port(),
-            static_dir: default_static_dir(),
+            static_dirs: default_static_dirs(),
         }
     }
 }
