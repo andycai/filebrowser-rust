@@ -142,12 +142,14 @@ echo ""
 echo -e "${YELLOW}创建发布包...${NC}"
 cd build
 
-# 只打包成功编译的文件
-for file in filebrowser-*; do
-    if [[ "$file" =~ darwin ]] || [[ "$file" =~ linux ]]; then
-        tar -czf "${file}.tar.gz" "$file" 2>/dev/null && echo "  ✓ ${file}.tar.gz"
-    elif [[ "$file" =~ windows ]]; then
-        zip "${file%.exe}.zip" "$file" 2>/dev/null && echo "  ✓ ${file%.exe}.zip"
+# 只打包可执行文件，不包括已存在的压缩文件
+for file in filebrowser-darwin-amd64 filebrowser-darwin-arm64 filebrowser-linux-amd64 filebrowser-linux-arm64 filebrowser-windows-amd64.exe; do
+    if [ -f "$file" ]; then
+        if [[ "$file" =~ darwin ]] || [[ "$file" =~ linux ]]; then
+            tar -czf "${file}.tar.gz" "$file" 2>/dev/null && echo "  ✓ ${file}.tar.gz"
+        elif [[ "$file" =~ windows ]]; then
+            zip "${file%.exe}.zip" "$file" 2>/dev/null && echo "  ✓ ${file%.exe}.zip"
+        fi
     fi
 done
 
