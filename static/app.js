@@ -163,22 +163,26 @@ function updateRootSelect() {
 // 更新面包屑导航
 function updateBreadcrumb(path) {
     const parts = path.split('/').filter(p => p);
-    let html = '<span class="breadcrumb-item" data-path="/">🏠 根目录</span>';
+    let html = '<span class="breadcrumb-item">🏠 根目录</span>';
 
-    let currentPath = '';
     parts.forEach((part, index) => {
-        currentPath += '/' + part;
         html += '<span class="breadcrumb-separator">/</span>';
-        html += `<span class="breadcrumb-item" data-path="${currentPath}">${part}</span>`;
+        html += `<span class="breadcrumb-item">${part}</span>`;
     });
 
     breadcrumb.innerHTML = html;
 
     // 添加点击事件
-    document.querySelectorAll('.breadcrumb-item').forEach(item => {
+    const items = breadcrumb.querySelectorAll('.breadcrumb-item');
+    items.forEach((item, index) => {
         item.addEventListener('click', () => {
-            const path = item.getAttribute('data-path');
-            loadDirectory(path);
+            // 根据索引重建路径
+            if (index === 0) {
+                loadDirectory('/');
+            } else {
+                const clickedPath = '/' + parts.slice(0, index).join('/');
+                loadDirectory(clickedPath);
+            }
         });
     });
 }

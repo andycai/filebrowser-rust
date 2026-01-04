@@ -698,10 +698,13 @@ fn validate_and_resolve_path(
     }
 
     // 构建完整路径
+    // 注意：如果 clean_path 是绝对路径，join() 会直接返回它，所以需要先去掉前导斜杠
     let full_path = if requested_path == "/" || requested_path == "" || requested_path == "." {
         root_path.to_path_buf()
     } else {
-        root_path.join(&clean_path)
+        // 去掉 clean_path 的前导斜杠（如果有），确保正确拼接
+        let path_without_prefix = clean_path.strip_prefix("/").unwrap_or(&clean_path);
+        root_path.join(path_without_prefix)
     };
 
     // 规范化路径（如果路径存在）
@@ -712,10 +715,15 @@ fn validate_and_resolve_path(
     };
 
     // 确保路径在根目录内
-    let normalized_str = normalized.to_str().unwrap_or("");
-    let root_str = root_path.to_str().unwrap_or("");
+    // 使用 pathdiff 来检查相对路径，而不是字符串比较
+    let rel_path = pathdiff::diff_paths(&normalized, &root_path)
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "无法计算相对路径",
+        ))?;
 
-    if !normalized_str.starts_with(root_str) {
+    // 检查相对路径是否以 .. 开头（表示路径在根目录之外）
+    if rel_path.components().any(|c| c == Component::ParentDir) {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "访问被拒绝：路径超出根目录",
