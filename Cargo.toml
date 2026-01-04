@@ -27,6 +27,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 path-clean = "1.0"
 pathdiff = "0.2"
 
+# MIME 类型检测
+mime_guess = "2.0"
+
 # URL 编码
 percent-encoding = "2.3"
 urlencoding = "2.1"

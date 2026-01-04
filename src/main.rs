@@ -178,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/list", get(handle_list))
         .route("/api/search", get(handle_search))
         .route("/api/view", get(handle_view))
+        .route("/api/download", get(handle_download))
         .route("/api/roots", get(handle_roots))
         .route("/api/save", axum::routing::post(handle_save))
         .route("/api/delete", axum::routing::get(handle_delete))
@@ -417,6 +418,49 @@ async fn handle_view(
         total_pages,
         is_partial,
     }))
+}
+
+/// 处理文件下载请求
+async fn handle_download(
+    State(state): State<AppState>,
+    Query(params): Query<FileQuery>,
+    Query(root_params): Query<RootQuery>,
+) -> Result<Response, StatusCode> {
+    let root_index = get_root_index_from_query(&root_params);
+    let root_path = get_root_path(&state, root_index);
+
+    let path = validate_and_resolve_path(&root_path, &params.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    if !path.is_file() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // 读取文件内容
+    let file_content = fs::read(&path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 获取文件名
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("download")
+        .to_string();
+
+    // 根据文件扩展名确定 Content-Type
+    let content_type = mime_guess::from_path(&path)
+        .first_or_octet_stream()
+        .to_string();
+
+    // 构建响应
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", file_name))
+        .header(header::CONTENT_LENGTH, file_content.len())
+        .body(axum::body::Body::from(file_content))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(response)
 }
 
 /// 处理搜索请求
