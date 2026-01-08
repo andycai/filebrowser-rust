@@ -3,7 +3,7 @@ mod scanner;
 
 use axum::{
     extract::{Path as AxumPath, Query, State, Multipart},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -20,6 +20,8 @@ use std::{
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
+use tower::Layer;
 use tracing::{error, info};
 use tracing_subscriber;
 
@@ -201,7 +203,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 挂载到 /static/{name}/
         let mount_path = format!("/static/{}", static_dir.name);
         info!("已挂载静态目录 '{}' 到 {} -> {}", static_dir.name, mount_path, abs_path.display());
-        app = app.nest_service(&mount_path, ServeDir::new(abs_path));
+
+        // 创建禁用缓存的 SetResponseHeaderLayer
+        let no_cache_layer = SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate, max-age=0"),
+        );
+
+        let serve_dir = ServeDir::new(abs_path);
+        app = app.nest_service(&mount_path, no_cache_layer.layer(serve_dir));
     }
 
     // 启动服务器
@@ -216,7 +226,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// 处理首页
 async fn handle_index() -> Response {
     let html = include_str!("../static/index.html");
-    Html(html).into_response()
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate, max-age=0"),
+    );
+    headers.insert(
+        header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    headers.insert(
+        header::EXPIRES,
+        HeaderValue::from_static("0"),
+    );
+
+    (headers, html).into_response()
 }
 
 /// HTML 响应包装器
